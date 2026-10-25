@@ -25,6 +25,8 @@ class World {
 
     val speedPowerUp = SpeedPowerUp()
 
+    val slimePowerUp = SlimePowerUp()
+
     val pacman = PacMan(
         initialDirection = RIGHT,
         initialPosition = Position(15.0, 26.5)
@@ -54,6 +56,7 @@ class World {
         fruit,
         freezePowerUp,
         speedPowerUp,
+        slimePowerUp,
         gameStateBanner,
         pacmanLives,
         *ghosts,

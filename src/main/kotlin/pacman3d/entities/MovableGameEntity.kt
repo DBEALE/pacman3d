@@ -24,6 +24,9 @@ abstract class MovableGameEntity<R : Renderable>(
 
     var speed = 5.0
 
+    // What is actually used for moving, so that subclasses can slow themselves down temporarily
+    protected open val currentSpeed get() = speed
+
     override fun resetState(world: World) {
         super.resetState(world)
 
@@ -70,7 +73,7 @@ abstract class MovableGameEntity<R : Renderable>(
 
         val isChangingMovementAxis = nextDirection differentAxisThan currentDirection && isLegalMove(maze, position, nextDirection)
 
-        val distance = (speed * time).coerceAtMost(0.5)
+        val distance = (currentSpeed * time).coerceAtMost(0.5)
 
         // We add 0.5 because we want to check the position at the edge of the tile
         // Specifically the edge in the direction we're moving towards

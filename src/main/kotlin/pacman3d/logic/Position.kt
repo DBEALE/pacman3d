@@ -66,5 +66,8 @@ class Position(var x: Double = 0.0, var y: Double = 0.0) {
 
     fun mazeIndexEquals(other: Position) = mazeIndex == other.mazeIndex
 
+    /** Whether the exact positions are within [distance] tiles of each other */
+    fun isWithin(distance: Double, other: Position) = (x - other.x).sqr + (y - other.y).sqr < distance.sqr
+
     override fun toString() = "[${x.truncate(2)}, ${y.truncate(2)}] ($mazeIndex)]"
 }

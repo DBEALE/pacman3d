@@ -7,7 +7,9 @@ import pacman3d.*
 import pacman3d.logic.HighScores
 import pacman3d.entities.AbsGameEntity
 import pacman3d.entities.Fruit
+import pacman3d.entities.Ghost
 import pacman3d.entities.GameStateBanner
+import pacman3d.entities.PacMan
 import pacman3d.entities.GameStateBanner.Companion.GAME_OVER
 import pacman3d.entities.Maze.Companion.isDot
 import pacman3d.entities.Maze.Companion.isDotOrEnergizer
@@ -61,6 +63,7 @@ class GameController {
         private const val GHOST_EATEN_EFFECT_TIME = 0.8
 
         private const val FREEZE_TIME = 6.0
+        private const val SLIME_TIME = 8.0
         private const val SPEED_BOOST_TIME = 6.0
         private const val SPEED_BOOST_FACTOR = 1.4
         private const val PACMAN_SPEED = 7.0
@@ -72,12 +75,16 @@ class GameController {
         private const val SECOND_FRUIT_DOTS_FRACTION = 0.7
         private const val FREEZE_POWER_UP_DOTS_FRACTION = 0.5
         private const val SPEED_POWER_UP_DOTS_FRACTION = 0.8
+        private const val SLIME_POWER_UP_DOTS_FRACTION = 0.62
 
         // The freeze power-up never appears this close to Pac-Man
         private const val FREEZE_POWER_UP_MIN_DISTANCE = 6.0
 
         // The row of the tunnel, where nothing is placed
         private const val TUNNEL_ROW = 17
+
+        // How close in tiles a ghost and Pac-Man must be to catch each other
+        private const val TOUCH_DISTANCE = 0.75
 
         private const val GAME_OVER_BANNER_TIME = 2.5
         private const val ATTRACT_GAME_OVER_TIME = 3.0
@@ -126,6 +133,8 @@ class GameController {
 
     private var speedBoostTimer: Timer? = null
 
+    private var slimeTimer: Timer? = null
+
     private var bonusPointsTimer: Timer? = null
 
     private var cutScene: LevelCompleteCutScene? = null
@@ -151,6 +160,7 @@ class GameController {
 
         freezeTimer = null
         speedBoostTimer = null
+        slimeTimer = null
         bonusPointsTimer = null
         fruit.setLevel(level)
 
@@ -203,7 +213,7 @@ class GameController {
     private fun resetGame(startLevel: Int) {
         flowTimer = null
         visualEffectTimer = null
-        unfreezeGhosts()
+        clearGhostEffects()
         endSpeedBoost()
 
         world.pacman.isVisible = true
@@ -257,6 +267,7 @@ class GameController {
     private fun updateTimers(time: Double) {
         freezeTimer?.update(time)
         speedBoostTimer?.update(time)
+        slimeTimer?.update(time)
         bonusPointsTimer?.update(time)
     }
 
@@ -274,7 +285,7 @@ class GameController {
             } else handleNoDotEaten(time)
 
             // Frozen ghosts are harmless, and can't be eaten either
-            ghosts.firstOrNull { !it.isFrozen && it.position.mazeIndexEquals(pacman.position) }?.also { ghost ->
+            ghosts.firstOrNull { !it.isFrozen && it.touches(pacman) }?.also { ghost ->
                 when {
                     // Handle eaten ghosts
                     ghost.state.isFrightened -> {
@@ -302,7 +313,7 @@ class GameController {
 
     // Everyone returns to the starting positions, and the player is given time to get ready again
     private fun restartAfterLifeLost() {
-        unfreezeGhosts()
+        clearGhostEffects()
         endSpeedBoost()
         world.pacman.resetState(world)
         ghostBehaviorController.onLifeLost()
@@ -315,11 +326,12 @@ class GameController {
         gameState = LevelComplete
         world.gameStateBanner.hide()
 
-        unfreezeGhosts()
+        clearGhostEffects()
         endSpeedBoost()
         world.fruit.hide()
         world.freezePowerUp.hide()
         world.speedPowerUp.hide()
+        world.slimePowerUp.hide()
 
         // The demo has no time for the cut scenes
         if (isAttract) {
@@ -386,6 +398,7 @@ class GameController {
 
             if (dotsEaten == (maze.totalDots * FREEZE_POWER_UP_DOTS_FRACTION).toInt()) spawnFreezePowerUp()
             if (dotsEaten == (maze.totalDots * SPEED_POWER_UP_DOTS_FRACTION).toInt()) spawnSpeedPowerUp()
+            if (dotsEaten == (maze.totalDots * SLIME_POWER_UP_DOTS_FRACTION).toInt()) spawnSlimePowerUp()
         }
     }
 
@@ -407,12 +420,23 @@ class GameController {
                 freezeGhosts()
             }
 
+            if (slimePowerUp.isEatenBy(pacman.position)) {
+                slimePowerUp.hide()
+                slimeGhosts()
+            }
+
             if (speedPowerUp.isEatenBy(pacman.position)) {
                 speedPowerUp.hide()
                 boostPacmanSpeed()
             }
         }
     }
+
+    /**
+     * Sharing a tile is not enough: Pac-Man and a ghost heading towards each other can swap tiles between two frames
+     * and never be on the same one, so they are also touching when they are close enough
+     */
+    private fun Ghost.touches(pacman: PacMan) = position.mazeIndexEquals(pacman.position) || position.isWithin(TOUCH_DISTANCE, pacman.position)
 
     private fun addScore(points: Int) {
         world.score += points
@@ -425,6 +449,23 @@ class GameController {
     }
 
     private fun spawnFreezePowerUp() = spawnPowerUp { world.freezePowerUp.show(it) }
+
+    private fun spawnSlimePowerUp() = spawnPowerUp { world.slimePowerUp.show(it) }
+
+    private fun slimeGhosts() {
+        world.ghosts.forEach { it.isSlimed = true }
+        slimeTimer = Timer(SLIME_TIME, ::endSlime)
+    }
+
+    private fun endSlime() {
+        slimeTimer = null
+        world.ghosts.forEach { it.isSlimed = false }
+    }
+
+    private fun clearGhostEffects() {
+        unfreezeGhosts()
+        endSlime()
+    }
 
     private fun spawnSpeedPowerUp() = spawnPowerUp { world.speedPowerUp.show(it) }
 
@@ -500,12 +541,13 @@ class GameController {
         if (isAttract || awaitingRestart || cutScene != null || visualEffectTimer != null || gameState == GameOver || gameState == LevelComplete) return
         if (!world.fruit.renderable.isIndicatorAt(clientX, clientY, camera)) return
 
-        unfreezeGhosts()
+        clearGhostEffects()
         endSpeedBoost()
         world.bonusPoints.hide()
         world.fruit.hide()
         world.freezePowerUp.hide()
         world.speedPowerUp.hide()
+        world.slimePowerUp.hide()
 
         level++
         initLevel()

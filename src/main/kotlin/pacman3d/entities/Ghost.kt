@@ -7,9 +7,21 @@ import pacman3d.entities.Maze.Companion.isValid
 import pacman3d.ext.truncate
 import pacman3d.renderables.GhostRenderable
 import pacman3d.logic.*
+import pacman3d.logic.GhostState.Chase
 import pacman3d.logic.GhostState.Eaten
+import pacman3d.logic.GhostState.Scatter
 import pacman3d.logic.GhostState.Frightened
 import pacman3d.logic.behaviors.*
+import kotlin.math.abs
+
+// The fraction of their normal speed ghosts have in the goo
+private const val SLIME_SPEED_FACTOR = 0.35
+
+// The closest a ghost gets to the ghost in front of it, in tiles
+private const val MIN_GHOST_GAP = 1.0
+
+// How far off to the side another ghost may be and still count as being in front
+private const val GHOST_LANE_WIDTH = 0.6
 
 class DotCounter(var count: Int = 0, var limit: Int = 0) {
 
@@ -42,6 +54,15 @@ abstract class Ghost(
             renderable.setFrozen(value)
         }
 
+    // Ghosts wading through goo are much slower. Eaten ghosts, which are only eyes, are not affected
+    var isSlimed = false
+        set(value) {
+            field = value
+            renderable.setSticky(value)
+        }
+
+    override val currentSpeed get() = if (isSlimed && state != Eaten) speed * SLIME_SPEED_FACTOR else speed
+
     var mandatoryDirectionOverride: Direction? = null
 
     var state: GhostState = initialState
@@ -67,13 +88,35 @@ abstract class Ghost(
         dotCounter.reset()
 
         isFrozen = false
+        isSlimed = false
         mandatoryDirectionOverride = null
 
         state = initialState
     }
 
     override fun update(world: World, time: Double) {
-        if (!isFrozen) super.update(world, time)
+        if (!isFrozen && !isBlockedByGhostAhead(world)) super.update(world, time)
+    }
+
+    private val isInMaze get() = state == Chase || state == Scatter || state == Frightened
+
+    /**
+     * Ghosts never overlap: a ghost that catches up with another one heading the same way holds back until there is
+     * room again, so that they follow each other through the corridors.
+     */
+    private fun isBlockedByGhostAhead(world: World): Boolean {
+        if (!isInMaze) return false
+
+        return world.ghosts.any { other ->
+            if (other === this || !other.isInMaze || other.currentDirection != currentDirection) return@any false
+
+            val dx = other.position.x - position.x
+            val dy = other.position.y - position.y
+            val ahead = dx * currentDirection.x + dy * currentDirection.y
+            val sideways = if (currentDirection.isHorizontal) abs(dy) else abs(dx)
+
+            ahead > 0.0 && ahead < MIN_GHOST_GAP && sideways < GHOST_LANE_WIDTH
+        }
     }
 
     abstract fun getChaseTargetTile(world: World, targetTile: Position)

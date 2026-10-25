@@ -38,10 +38,10 @@ object GhostAccessories {
 
     private fun devil() = Group().apply {
         for (side in SIDES) {
-            add(part(ConeGeometry(0.13, 0.45, 12), 0x8B0000).apply {
-                onHead(y = 1.72, angleDeg = side * 35)
+            add(part(ConeGeometry(0.21, 0.8, 14), 0x8B0000).apply {
+                onHead(y = 1.7, angleDeg = side * 35)
                 rotateX(0.4)
-                translateY(0.18)
+                translateY(0.3)
             })
             // Angry eyebrows, slanting down towards the nose
             add(part(BoxGeometry(0.32, 0.07, 0.06), 0x1A0000).apply {

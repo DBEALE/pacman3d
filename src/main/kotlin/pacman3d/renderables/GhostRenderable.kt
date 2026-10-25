@@ -43,6 +43,12 @@ class GhostRenderable(private val entity: Ghost, private val color: Int) : Rende
 
         private const val BODY_FRIGHTENED_COLOR = 0x1B1AD4
         private const val BODY_FROZEN_COLOR = 0x9FE8FF
+
+        private const val SLIME_COLOR = 0x62E02B
+        private const val SLIME_GLOW_COLOR = 0x1B6A0A
+        private const val SLIME_TINT = 0.3
+        private const val SLIME_WOBBLE_SPEED = 3.0
+        private const val STRAND_COUNT = 5
         private const val FACE_FRIGHTENED_COLOR = 0xCAD5FF
 
         // Color swaps per second while a frightened ghost flashes
@@ -144,12 +150,43 @@ class GhostRenderable(private val entity: Ghost, private val color: Int) : Rende
 
     private var isFlashing = false
 
+    private var isSticky = false
+
+    private var stickyAge = 0.0
+
+    private val slimeMaterial = SLIME_COLOR.toMeshStandardMaterial(roughness = 0.05).apply {
+        emissive.setHex(SLIME_GLOW_COLOR)
+        transparent = true
+        opacity = 0.8
+    }
+
+    // The puddle of goo the ghost drags itself through, lying on the floor below it
+    private val puddle = Mesh(CircleGeometry(RADIUS * 1.5, 28), slimeMaterial).apply {
+        rotateX(-HALF_PI)
+        position.y = -BASE_Y + 0.04
+    }
+
+    // Strands of goo stretching from the ghost's body down to the puddle
+    private val strands = List(STRAND_COUNT) { i ->
+        val angle = i * TWO_PI / STRAND_COUNT
+        Mesh(CylinderGeometry(0.03, 0.07, BASE_Y, 6), slimeMaterial).apply {
+            position.set(cos(angle) * RADIUS * 0.6, -BASE_Y / 2, sin(angle) * RADIUS * 0.6)
+        }
+    }
+
+    private val slime = Group().apply {
+        visible = false
+        add(puddle)
+        strands.forEach { add(it) }
+    }
+
     private var flashAge = 0.0
 
     private val accessories = GhostAccessories.create(entity.name)
 
     override val sceneObject = Group().add(
             body,
+            slime,
             accessories,
             Mesh(eyeballGeometry, whiteMaterial).apply {
                 position.set(
@@ -184,6 +221,30 @@ class GhostRenderable(private val entity: Ghost, private val color: Int) : Rende
 
         leftIris.adjustLook(EYE_SPACING)
         rightIris.adjustLook(-EYE_SPACING)
+    }
+
+    /** Ghosts in goo are tinted green, and drag themselves through a puddle */
+    fun setSticky(sticky: Boolean) {
+        if (sticky == isSticky) return
+        isSticky = sticky
+        stickyAge = 0.0
+        slime.visible = sticky
+        if (!sticky) sceneObject.scale.set(1.0, 1.0, 1.0)
+        updateBodyColor()
+    }
+
+    private fun animateSticky(time: Double) {
+        stickyAge += time
+        val squash = sin(stickyAge * SLIME_WOBBLE_SPEED) * 0.04
+
+        // The ghost sags and stretches as it pulls its feet out of the goo
+        sceneObject.scale.set(1.0 + squash + 0.03, 0.94 - squash, 1.0 + squash + 0.03)
+
+        puddle.scale.set(1.0 + squash * 2, 1.0 + squash * 2, 1.0)
+        strands.forEachIndexed { i, strand ->
+            val stretch = 0.7 + 0.3 * sin(stickyAge * SLIME_WOBBLE_SPEED + i * 1.3)
+            strand.scale.y = stretch
+        }
     }
 
     /** Frightened ghosts flash to warn that they are about to turn back to normal */
@@ -227,8 +288,10 @@ class GhostRenderable(private val entity: Ghost, private val color: Int) : Rende
             else -> color
         }
 
-        bodyMaterial.color.setHex(bodyColor)
-        bodyMaterial.emissive.setHex(bodyColor.shade(BODY_GLOW))
+        val shownColor = if (isSticky && !isFrozen && !isFrightened) bodyColor.mixWith(SLIME_COLOR, SLIME_TINT) else bodyColor
+
+        bodyMaterial.color.setHex(shownColor)
+        bodyMaterial.emissive.setHex(shownColor.shade(BODY_GLOW))
     }
 
     override fun setup(world: World) {
@@ -241,6 +304,8 @@ class GhostRenderable(private val entity: Ghost, private val color: Int) : Rende
         sceneObject.position.z = entity.position.worldY
 
         look(entity.currentDirection)
+
+        if (isSticky) animateSticky(time)
 
         if (isFlashing) {
             val phaseBefore = (flashAge * FLASH_RATE).toInt()

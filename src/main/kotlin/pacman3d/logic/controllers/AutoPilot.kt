@@ -165,6 +165,7 @@ class AutoPilot(private val world: World) {
 
         if (isAt(world.fruit.isShown, Fruit.POSITION, x, y)) value = minOf(value, PICKUP_BONUS)
         if (isAt(world.freezePowerUp.isShown, world.freezePowerUp.position, x, y)) value = minOf(value, PICKUP_BONUS)
+        if (isAt(world.slimePowerUp.isShown, world.slimePowerUp.position, x, y)) value = minOf(value, PICKUP_BONUS)
         if (isAt(world.speedPowerUp.isShown, world.speedPowerUp.position, x, y)) value = minOf(value, PICKUP_BONUS)
 
         for (ghost in world.ghosts) {
