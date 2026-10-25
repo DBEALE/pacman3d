@@ -30,7 +30,7 @@ object SoundPlayer {
 
     init {
         window.addEventListener("keydown", {
-            audioListener.context.asDynamic().resume() as Unit
+            audioListener.context.asDynamic().resume()
         })
     }
 

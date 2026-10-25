@@ -6,11 +6,15 @@ import pacman3d.maze.MazeConst
 import pacman3d.entities.PacMan
 import pacman3d.entities.World
 import pacman3d.renderables.PacManMesh.Companion.SIZE
+import three.js.PointLight
 import kotlin.math.PI
 
 class PacManRenderable(private val entity: PacMan) : Renderable {
 
-    private val pacmanObject = PacManMesh()
+    private val pacmanObject = PacManMesh().apply {
+        // A warm glow that lights up the corridors around Pac-Man
+        add(PointLight(0xFFE680, 0.9, 8.0, 2.0).apply { position.set(0.0, 1.6, 0.0) })
+    }
 
     override val sceneObject = pacmanObject
 

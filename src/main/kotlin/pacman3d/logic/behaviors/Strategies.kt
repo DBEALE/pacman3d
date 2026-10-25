@@ -36,6 +36,17 @@ object FrightenedMovementStrategy : GhostMovementStrategy {
         fun Direction.isValid()
             = ghost.currentDirection.oppositeDirection != this && isLegalMove(world.maze, ghost.position, this)
 
+        // Smart ghosts run away from Pac-Man instead of wandering randomly
+        if (smartness > 0 && Random.nextDouble() < smartness * 0.8) {
+            val fleeDirection = directions.filter { it.isValid() }.maxByOrNull {
+                position.sqrDistanceFromDirectionTo(it, world.pacman.position)
+            }
+            if (fleeDirection != null) {
+                nextDirection = fleeDirection
+                return@with
+            }
+        }
+
         val randomDirection = getRandomDirection()
 
         nextDirection = if (randomDirection.isValid()) randomDirection else directions.first { it.isValid() }
@@ -70,16 +81,17 @@ object ReturnToGhostHouseMovementStrategy : GhostMovementStrategyWithLookAhead()
         }
     }
 
-    override fun hasReachedTarget(ghost: Ghost) = ghost.position.isAt(14.5, 16.0, xRange = 1.0)
+    override fun hasReachedTarget(ghost: Ghost) = ghost.position.isAt(14.5, 16.5, xRange = 1.0, yRange = 1.5)
 }
 
 object LeaveGhostHouseMovementStrategy: GhostMovementStrategy {
 
     override fun onPositionUpdated(world: World, ghost: Ghost, mazePositionChanged: Boolean) = with(ghost) {
         when {
-            position.mazeX < 14 -> nextDirection = RIGHT
-            position.mazeX > 15 -> nextDirection = LEFT
-            position.x in 14.5..15.5 -> nextDirection = UP
+            // Every x position must be covered, or the ghost gets stuck in the den when it ends up in a gap
+            position.x < 14.5 -> nextDirection = RIGHT
+            position.x > 15.5 -> nextDirection = LEFT
+            else -> nextDirection = UP
         }
     }
 

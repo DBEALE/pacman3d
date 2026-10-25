@@ -31,7 +31,16 @@ abstract class Ghost(
 
     val dotCounter = DotCounter()
 
+    // 0 - 1, set by the level. See GameData.smartness
+    var smartness = 0.0
+
     val targetTile = Position()
+
+    var isFrozen = false
+        set(value) {
+            field = value
+            renderable.setFrozen(value)
+        }
 
     var mandatoryDirectionOverride: Direction? = null
 
@@ -57,7 +66,14 @@ abstract class Ghost(
 
         dotCounter.reset()
 
+        isFrozen = false
+        mandatoryDirectionOverride = null
+
         state = initialState
+    }
+
+    override fun update(world: World, time: Double) {
+        if (!isFrozen) super.update(world, time)
     }
 
     abstract fun getChaseTargetTile(world: World, targetTile: Position)

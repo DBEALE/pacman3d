@@ -7,6 +7,7 @@ import pacman3d.ext.sqr
 import pacman3d.logic.Direction
 import pacman3d.logic.Direction.*
 import pacman3d.logic.Position
+import kotlin.random.Random
 
 /**
  * The movement strategies  are designed to be completely stateless and only manipulate ghost state
@@ -47,6 +48,12 @@ abstract class GhostMovementStrategyWithLookAhead : GhostMovementStrategy {
             currentDirection: Direction,
             ghost: Ghost,
             world: World): Direction = with (ghost) {
+
+        // Smarter ghosts take the real shortest path to their target, rather than the straight-line guess
+        if (ghost.smartness > 0 && Random.nextDouble() < ghost.smartness) {
+            PathFinder.firstStep(world, ghost, fromX, fromY, currentDirection, targetTile.mazeX, targetTile.mazeY)
+                ?.let { return it }
+        }
 
         fun Direction.targetTileDistance(): Int {
             val toX = fromX + this.x

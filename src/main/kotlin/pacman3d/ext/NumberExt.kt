@@ -1,5 +1,6 @@
 package pacman3d.ext
 
+import pacman3d.renderables.Environment
 import three.js.*
 import kotlin.math.*
 import kotlin.random.Random
@@ -57,6 +58,15 @@ fun Number.truncate(decimalDigits: Int) = 10.0.pow(decimalDigits).let { pow -> (
 fun Number.toMeshPhongMaterial() = let { materialColor -> MeshPhongMaterial().apply { color = Color(materialColor) } }
 fun Number.toLineBasicMaterial() = let { materialColor -> LineBasicMaterial().apply { color = Color(materialColor) } }
 fun Number.toMeshLambertMaterial() = let { materialColor -> MeshLambertMaterial().apply { color = Color(materialColor) }}
+
+fun Number.toMeshStandardMaterial(roughness: Double = 0.5, metalness: Double = 0.0, envMapIntensity: Double = 1.0)
+    = MeshStandardMaterial().apply {
+        color = Color(this@toMeshStandardMaterial)
+        this.roughness = roughness
+        this.metalness = metalness
+        envMap = Environment.cubeMap
+        this.envMapIntensity = envMapIntensity
+    }
 
 val Number.normalized get() = if (this < 0.0) -1.0 else if (this > 0.0) 1.0 else 0.0
 

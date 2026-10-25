@@ -19,6 +19,12 @@ class World {
 
     val bonusPoints = BonusPoints()
 
+    val fruit = Fruit()
+
+    val freezePowerUp = FreezePowerUp()
+
+    val speedPowerUp = SpeedPowerUp()
+
     val pacman = PacMan(
         initialDirection = RIGHT,
         initialPosition = Position(15.0, 26.5)
@@ -45,6 +51,9 @@ class World {
         score,
         pacman,
         bonusPoints,
+        fruit,
+        freezePowerUp,
+        speedPowerUp,
         gameStateBanner,
         pacmanLives,
         *ghosts,

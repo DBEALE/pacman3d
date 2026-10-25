@@ -13,5 +13,7 @@ class Dots : AbsGameEntity<DotsRenderable>() {
 
     override fun createRenderable() = DotsRenderable(this)
 
+    override fun resetState(world: World) = renderable.reset(world)
+
     fun onDotEaten(position: Position) = renderable.eat(position)
 }

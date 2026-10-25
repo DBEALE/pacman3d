@@ -21,5 +21,17 @@ object GameData {
     )
 
     val FRIGHTENED_TIME  = arrayOf(6, 5, 4, 3, 2, 5, 2, 2, 1, 5, 2, 1, 1, 3, 1, 1, 0, 1, 0)
+
+    // Makes the energizers last longer than in the original game
+    const val FRIGHTENED_TIME_FACTOR = 2.0
     val NUMBER_OF_FLASHES = arrayOf(5, 5, 5, 5, 5, 5, 5, 5, 3, 5, 5, 3, 3, 5, 3, 3, 0, 3, 0)
+
+    // Frightened ghosts flash during the last seconds of the frightened time
+    const val FRIGHTENED_FLASH_TIME = 10.0
+
+    /**
+     * How well the ghosts hunt Pac-Man, from 0 (the original game's behavior) to 1. Smart ghosts take the real
+     * shortest path through the maze, flee properly when frightened and Clyde loses his shyness.
+     */
+    fun smartness(level: Int) = (level * 0.15).coerceIn(0.0, 0.9)
 }

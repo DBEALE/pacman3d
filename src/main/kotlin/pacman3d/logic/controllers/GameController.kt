@@ -1,17 +1,25 @@
 package pacman3d.logic.controllers
 
 import kotlinx.browser.document
+import kotlinx.browser.window
 import org.w3c.dom.events.KeyboardEvent
 import pacman3d.*
 import pacman3d.entities.AbsGameEntity
+import pacman3d.entities.Fruit
 import pacman3d.entities.GameStateBanner
 import pacman3d.entities.GameStateBanner.Companion.GAME_OVER
 import pacman3d.entities.Maze.Companion.isDot
 import pacman3d.entities.Maze.Companion.isDotOrEnergizer
 import pacman3d.entities.Maze.Companion.isEnergizer
+import pacman3d.entities.Maze.Companion.isGhostHouse
+import pacman3d.entities.Maze.Companion.isValid
+import pacman3d.entities.PacManLives
 import pacman3d.entities.World
 import pacman3d.logic.Direction
+import pacman3d.logic.Position
 import pacman3d.logic.controllers.GameState.*
+import pacman3d.maze.MazeLayouts
+import three.js.Camera
 import three.js.Scene
 
 /**
@@ -40,6 +48,7 @@ import three.js.Scene
 private enum class GameState {
     WaitingForPlayer,
     Playing,
+    LevelComplete,
     GameOver,
 }
 
@@ -48,6 +57,25 @@ class GameController {
     companion object {
         private const val PACMAN_EATEN_TIME_TIME = 1.4
         private const val GHOST_EATEN_EFFECT_TIME = 0.8
+
+        private const val FREEZE_TIME = 6.0
+        private const val SPEED_BOOST_TIME = 6.0
+        private const val SPEED_BOOST_FACTOR = 1.4
+        private const val PACMAN_SPEED = 7.0
+        private const val BONUS_POINTS_TIME = 1.5
+        private const val EXTRA_LIFE_SCORE = 10000
+
+        // The fruit appears after this fraction of the dots were eaten
+        private const val FIRST_FRUIT_DOTS_FRACTION = 0.3
+        private const val SECOND_FRUIT_DOTS_FRACTION = 0.7
+        private const val FREEZE_POWER_UP_DOTS_FRACTION = 0.5
+        private const val SPEED_POWER_UP_DOTS_FRACTION = 0.8
+
+        // The freeze power-up never appears this close to Pac-Man
+        private const val FREEZE_POWER_UP_MIN_DISTANCE = 6.0
+
+        // The row of the tunnel, where nothing is placed
+        private const val TUNNEL_ROW = 17
 
         private const val KEY_ARROW_LEFT = 37
         private const val KEY_ARROW_RIGHT = 39
@@ -64,7 +92,9 @@ class GameController {
 
     private val world = World()
 
-    private val level = 0
+    // Starts at a later level when the page is opened with a level parameter, e.g. http://localhost:8080/?level=3
+    private var level = Regex("[?&]level=(\\d+)").find(window.location.search)
+        ?.groupValues?.get(1)?.toInt()?.minus(1)?.coerceAtLeast(0) ?: 0
 
     private var gameState = WaitingForPlayer
 
@@ -72,17 +102,35 @@ class GameController {
 
     private var livesLeft = 3
 
+    private var extraLifeAwarded = false
+
     private val ghostBehaviorController = GhostBehaviorController(world)
 
     private var visualEffectTimer: Timer? = null
 
+    private var freezeTimer: Timer? = null
+
+    private var speedBoostTimer: Timer? = null
+
+    private var bonusPointsTimer: Timer? = null
+
+    private var cutScene: LevelCompleteCutScene? = null
+
     private fun initLevel() = with (world) {
+        maze.layout = MazeLayouts.forLevel(level)
+        maze.level = level
+
         world.resetState()
 
         ghostBehaviorController.initLevel(level)
 
+        freezeTimer = null
+        speedBoostTimer = null
+        bonusPointsTimer = null
+        fruit.setLevel(level)
+
         pacmanLives.setLives(livesLeft)
-        pacman.speed = 7.0
+        pacman.speed = PACMAN_SPEED
 
         waitForPlayer()
     }
@@ -95,6 +143,12 @@ class GameController {
     }
 
     fun update(time: Double) {
+
+        cutScene?.let { scene ->
+            scene.update(time)
+            world.update(time)
+            return
+        }
 
         // When an effect is in progress we don't update the game logic
         visualEffectTimer?.let { timer ->
@@ -109,6 +163,8 @@ class GameController {
             return
         }
 
+        updateTimers(time)
+
         updateGameLogic(time)
 
         ghostBehaviorController.update(time)
@@ -116,11 +172,27 @@ class GameController {
         world.update(time)
     }
 
+    private fun updateTimers(time: Double) {
+        freezeTimer?.update(time)
+        speedBoostTimer?.update(time)
+        bonusPointsTimer?.update(time)
+    }
+
     private fun updateGameLogic(time: Double) {
         with (world) {
-            if (maze[pacman.position].isDotOrEnergizer) handleDotEaten() else handleNoDotEaten(time)
+            handlePickups()
 
-            ghosts.firstOrNull { it.position.mazeIndexEquals(pacman.position) }?.also { ghost ->
+            if (maze[pacman.position].isDotOrEnergizer) {
+                handleDotEaten()
+
+                if (maze.dotsLeft == 0) {
+                    beginLevelCompleteCutScene()
+                    return
+                }
+            } else handleNoDotEaten(time)
+
+            // Frozen ghosts are harmless, and can't be eaten either
+            ghosts.firstOrNull { !it.isFrozen && it.position.mazeIndexEquals(pacman.position) }?.also { ghost ->
                 when {
                     // Handle eaten ghosts
                     ghost.state.isFrightened -> {
@@ -137,13 +209,40 @@ class GameController {
                         SoundPlayer.play(Sound.LifeLost)
                         if (livesLeft == 0) gameOver() else {
                             pacmanLives.setLives(--livesLeft)
-                            pacman.resetState(world)
-                            beginVisualEffect(PACMAN_EATEN_TIME_TIME, pacman, ghost)
+                            beginVisualEffect(PACMAN_EATEN_TIME_TIME, pacman, *ghosts, onEnd = ::restartAfterLifeLost)
                             return
                         }
                     }
                 }
             }
+        }
+    }
+
+    // Everyone returns to the starting positions, and the player is given time to get ready again
+    private fun restartAfterLifeLost() {
+        unfreezeGhosts()
+        endSpeedBoost()
+        world.pacman.resetState(world)
+        ghostBehaviorController.onLifeLost()
+        world.bonusPoints.hide()
+
+        waitForPlayer()
+    }
+
+    private fun beginLevelCompleteCutScene() {
+        gameState = LevelComplete
+        world.gameStateBanner.hide()
+
+        unfreezeGhosts()
+        endSpeedBoost()
+        world.fruit.hide()
+        world.freezePowerUp.hide()
+        world.speedPowerUp.hide()
+
+        cutScene = LevelCompleteCutScene.forLevel(level, world) {
+            cutScene = null
+            level++
+            initLevel()
         }
     }
 
@@ -153,32 +252,114 @@ class GameController {
         world.gameStateBanner.show(GAME_OVER)
     }
 
-    private fun handleDotEaten() = with (world) {
-        val mazeValue = maze[pacman.position]
-        val isEnergizer = mazeValue.isEnergizer
+    private fun handleDotEaten() {
+        with (world) {
+            val mazeValue = maze[pacman.position]
+            val isEnergizer = mazeValue.isEnergizer
 
-        SoundPlayer.play(Sound.Chomp)
+            SoundPlayer.play(Sound.Chomp)
 
-        // The first ghost captured after an energizer has been eaten is always worth 200 points
-        if (isEnergizer) pointsForEatenGhost = 200
+            // The first ghost captured after an energizer has been eaten is always worth 200 points
+            if (isEnergizer) pointsForEatenGhost = 200
 
-        score += valueOf(mazeValue)
+            addScore(valueOf(mazeValue))
 
-        dots.onDotEaten(pacman.position)
-        maze.onDotEaten(pacman.position)
-        ghostBehaviorController.onDotEaten(isEnergizer)
+            dots.onDotEaten(pacman.position)
+            maze.onDotEaten(pacman.position)
+            ghostBehaviorController.onDotEaten(isEnergizer)
+
+            val dotsEaten = maze.totalDots - maze.dotsLeft
+            if (dotsEaten == (maze.totalDots * FIRST_FRUIT_DOTS_FRACTION).toInt()
+                || dotsEaten == (maze.totalDots * SECOND_FRUIT_DOTS_FRACTION).toInt()) fruit.show()
+
+            if (dotsEaten == (maze.totalDots * FREEZE_POWER_UP_DOTS_FRACTION).toInt()) spawnFreezePowerUp()
+            if (dotsEaten == (maze.totalDots * SPEED_POWER_UP_DOTS_FRACTION).toInt()) spawnSpeedPowerUp()
+        }
+    }
+
+    private fun handlePickups() {
+        with (world) {
+            if (fruit.isEatenBy(pacman.position)) {
+                SoundPlayer.play(Sound.EatGhost)
+                addScore(fruit.points)
+                bonusPoints.show(fruit.points, Fruit.POSITION)
+                bonusPointsTimer = Timer(BONUS_POINTS_TIME) {
+                    bonusPointsTimer = null
+                    bonusPoints.hide()
+                }
+                fruit.hide()
+            }
+
+            if (freezePowerUp.isEatenBy(pacman.position)) {
+                freezePowerUp.hide()
+                freezeGhosts()
+            }
+
+            if (speedPowerUp.isEatenBy(pacman.position)) {
+                speedPowerUp.hide()
+                boostPacmanSpeed()
+            }
+        }
+    }
+
+    private fun addScore(points: Int) {
+        world.score += points
+
+        if (!extraLifeAwarded && world.score.points >= EXTRA_LIFE_SCORE) {
+            extraLifeAwarded = true
+            if (livesLeft < PacManLives.MAX_LIVES) world.pacmanLives.setLives(++livesLeft)
+        }
+    }
+
+    private fun spawnFreezePowerUp() = spawnPowerUp { world.freezePowerUp.show(it) }
+
+    private fun spawnSpeedPowerUp() = spawnPowerUp { world.speedPowerUp.show(it) }
+
+    private fun boostPacmanSpeed() {
+        world.pacman.speed = PACMAN_SPEED * SPEED_BOOST_FACTOR
+        speedBoostTimer = Timer(SPEED_BOOST_TIME, ::endSpeedBoost)
+    }
+
+    private fun endSpeedBoost() {
+        speedBoostTimer = null
+        world.pacman.speed = PACMAN_SPEED
+    }
+
+    private fun spawnPowerUp(show: (Position) -> Unit) {
+        with (world) {
+            val candidates = ArrayList<Position>()
+
+            maze.forEachTile { maze, x, y ->
+                val tile = maze[x, y]
+                if (tile.isValid && !tile.isGhostHouse && y != TUNNEL_ROW) candidates += Position(x, y)
+            }
+
+            val spot = candidates.filter { it.distanceTo(pacman.position) >= FREEZE_POWER_UP_MIN_DISTANCE }.randomOrNull()
+            if (spot != null) show(spot)
+        }
+    }
+
+    private fun freezeGhosts() {
+        world.ghosts.forEach { it.isFrozen = true }
+        freezeTimer = Timer(FREEZE_TIME, ::unfreezeGhosts)
+    }
+
+    private fun unfreezeGhosts() {
+        freezeTimer = null
+        world.ghosts.forEach { it.isFrozen = false }
     }
 
     private fun handleNoDotEaten(time: Double) {
         ghostBehaviorController.onNoDotEaten(time)
     }
 
-    private fun beginVisualEffect(effectTime: Double, vararg participants: AbsGameEntity<*>) {
+    private fun beginVisualEffect(effectTime: Double, vararg participants: AbsGameEntity<*>, onEnd: (() -> Unit)? = null) {
         world.onVisualEffectBegin()
         ghostBehaviorController.onVisualEffectBegin()
 
         visualEffectTimer = Timer(effectTime) {
             endVisualEffect(participants)
+            onEnd?.invoke()
         }
 
         participants.forEach { it.isVisible = false }
@@ -201,6 +382,22 @@ class GameController {
         document.onkeydown = ::handleKeyboardEvent
     }
 
+    /** Cheat: double clicking a fruit at the bottom of the screen skips to the next maze */
+    fun onDoubleClick(clientX: Int, clientY: Int, camera: Camera) {
+        if (cutScene != null || visualEffectTimer != null || gameState == GameOver || gameState == LevelComplete) return
+        if (!world.fruit.renderable.isIndicatorAt(clientX, clientY, camera)) return
+
+        unfreezeGhosts()
+        endSpeedBoost()
+        world.bonusPoints.hide()
+        world.fruit.hide()
+        world.freezePowerUp.hide()
+        world.speedPowerUp.hide()
+
+        level++
+        initLevel()
+    }
+
     private fun handleKeyboardEvent(event: KeyboardEvent) {
 
         if (!ALLOWED_KEYS.contains(event.keyCode)) return
@@ -212,7 +409,7 @@ class GameController {
                 world.setPacmanAndGhostsActive(true)
             }
 
-            GameOver -> return
+            GameOver, LevelComplete -> return
         }
 
         with (world.pacman) {

@@ -32,7 +32,9 @@ class Clyde : Ghost(
     override fun getChaseTargetTile(world: World, targetTile: Position) {
         val pacmanPosition = world.pacman.position
         val distanceToPacman = position.distanceTo(pacmanPosition)
-        targetTile.copy(if (distanceToPacman >= 8.0) pacmanPosition else scatterTargetTile)
+        // Clyde becomes less shy as the ghosts get smarter
+        val shyDistance = 8.0 * (1.0 - smartness)
+        targetTile.copy(if (distanceToPacman >= shyDistance) pacmanPosition else scatterTargetTile)
     }
 }
 

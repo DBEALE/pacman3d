@@ -5,7 +5,7 @@ import pacman3d.renderables.PacManLivesRenderable
 class PacManLives : AbsGameEntity<PacManLivesRenderable>() {
 
     companion object {
-        const val MAX_LIVES = 3
+        const val MAX_LIVES = 5
     }
 
     override fun createRenderable() = PacManLivesRenderable()

@@ -11,11 +11,20 @@ import three.js.*
 
 class Game {
 
+    private companion object {
+        const val PCF_SOFT_SHADOW_MAP = 2
+        const val ACES_FILMIC_TONE_MAPPING = 5
+
+        const val SHADOW_MAP_SIZE = 2048
+        const val SHADOW_AREA_WIDTH = 19
+        const val SHADOW_AREA_LENGTH = 22
+    }
+
     private var paused = false
 
     private val clock = Clock()
 
-    private val camera = PerspectiveCamera(75, window.aspectRatio, 0.1, 1000).apply {
+    private val camera = PerspectiveCamera(75, window.aspectRatio, 0.5, 400).apply {
         position.set(0, MazeConst.LENGTH * 0.55, MazeConst.LENGTH * 0.5)
         lookAt(0, 0, 5)
         add(SoundPlayer)
@@ -23,7 +32,13 @@ class Game {
 
     private val cameraAnimator = CameraAnimator(camera)
 
-    private val renderer = webGLRenderer(clearColor = 0x333333)
+    private val renderer = webGLRenderer(clearColor = 0x05050A).apply {
+        val r = asDynamic()
+        r.shadowMap.enabled = true
+        r.shadowMap.type = PCF_SOFT_SHADOW_MAP
+        r.toneMapping = ACES_FILMIC_TONE_MAPPING
+        r.toneMappingExposure = 1.15
+    }
 
     private val gameController = GameController()
 
@@ -38,9 +53,28 @@ class Game {
     }
 
     private val scene = Scene().apply {
-        add(DirectionalLight(0xffffff, 1).apply { position.set(-MazeConst.VISIBLE_WIDTH, 40, MazeConst.LENGTH) })
-        add(HemisphereLight(0xffffff, 0xffffff, 0.5))
-        //add(AmbientLight(0x555555))
+        // The main light, which also casts the shadows of everything onto the floor
+        add(DirectionalLight(0xFFFFFF, 1.1).apply {
+            position.set(-12, 34, 22)
+            castShadow = true
+
+            val shadow = asDynamic().shadow
+            shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE)
+            shadow.bias = -0.0006
+
+            val shadowCamera = shadow.camera
+            shadowCamera.left = -SHADOW_AREA_WIDTH
+            shadowCamera.right = SHADOW_AREA_WIDTH
+            shadowCamera.top = SHADOW_AREA_LENGTH
+            shadowCamera.bottom = -SHADOW_AREA_LENGTH
+            shadowCamera.near = 5
+            shadowCamera.far = 90
+            shadowCamera.updateProjectionMatrix()
+        })
+
+        // A weaker, warmer light from the opposite side keeps the shaded sides of the walls from going black
+        add(DirectionalLight(0xFFD2A8, 0.3).apply { position.set(15, 12, -12) })
+        add(HemisphereLight(0xB8C4FF, 0x1A1030, 0.55))
     }
 
     init {
@@ -49,6 +83,8 @@ class Game {
             renderer.onResize()
             updateScene()
         }
+
+        window.ondblclick = { gameController.onDoubleClick(it.clientX, it.clientY, camera) }
 
         window.onblur = { pause() }
 

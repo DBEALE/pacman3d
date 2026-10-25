@@ -9,20 +9,33 @@ object AssetLoader {
 
     private const val FONT = "fonts/emulogic.json"
 
-    private lateinit var font: Font
+    // A clearer font for the numbers, because the pixel font is hard to read for digits
+    private const val NUMBER_FONT = "fonts/helvetiker_bold.json"
 
-    private val fontLoadedCallbacks = ArrayList<Callback>()
+    private class FontAsset(path: String) {
+        private var font: Font? = null
 
-    init {
-        FontLoader().load(FONT, onLoad = ::executeFontLoadedCallbacks)
+        private val callbacks = ArrayList<Callback>()
+
+        init {
+            FontLoader().load(path, onLoad = { loaded ->
+                font = loaded
+                callbacks.forEach { it.invoke(loaded) }
+                callbacks.clear()
+            })
+        }
+
+        fun onLoaded(callback: Callback) {
+            val loaded = font
+            if (loaded != null) callback(loaded) else callbacks += callback
+        }
     }
 
-    private fun executeFontLoadedCallbacks(font: Font) {
-        fontLoadedCallbacks.forEach { it.invoke(font) }
-        fontLoadedCallbacks.clear()
-    }
+    private val textFont = FontAsset(FONT)
 
-    fun onFontLoaded(callback: Callback) {
-        if (::font.isInitialized) callback(font) else fontLoadedCallbacks += callback
-    }
+    private val numberFont = FontAsset(NUMBER_FONT)
+
+    fun onFontLoaded(callback: Callback) = textFont.onLoaded(callback)
+
+    fun onNumberFontLoaded(callback: Callback) = numberFont.onLoaded(callback)
 }

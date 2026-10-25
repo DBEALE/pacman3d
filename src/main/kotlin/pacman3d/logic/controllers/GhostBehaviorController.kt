@@ -7,7 +7,9 @@ import pacman3d.logic.Direction
 import pacman3d.logic.Direction.LEFT
 import pacman3d.logic.GameData
 import pacman3d.logic.GameData.CLYDE_DOT_LIMIT
+import pacman3d.logic.GameData.FRIGHTENED_FLASH_TIME
 import pacman3d.logic.GameData.FRIGHTENED_TIME
+import pacman3d.logic.GameData.FRIGHTENED_TIME_FACTOR
 import pacman3d.logic.GameData.INKY_DOT_LIMIT
 import pacman3d.logic.GameData.LEAVE_GHOST_HOUSE_TIMES
 import pacman3d.logic.GameData.PINKY_DOT_LIMIT
@@ -26,17 +28,26 @@ import pacman3d.logic.GhostState.*
  */
 class GhostBehaviorController(private val world: World) {
 
-    // TODO: Reset this timer when a life is lost
+    private companion object {
+        const val GHOST_BASE_SPEED = 5.0
+        const val GHOST_SPEED_INCREMENT = 0.25
+        const val GHOST_MAX_SPEED = 6.5
+    }
+
     private var scatterChaseTimer: Timer
 
     private var frightenedTimer: Timer? = null
+
+    private var frightenedFlashTime = 0.0
 
     private var globalChaseScatterState: GhostState = Scatter
 
     // The direction to which the ghost turns upon leaving the ghost house
     private var ghostExitDirection: Direction = LEFT
 
-    private var gameLevel = 0
+    private var scatterChasePhase = 0
+
+    private var level = 0
 
     private var timeElapsedSinceLastDotEaten = 0.0
 
@@ -47,14 +58,39 @@ class GhostBehaviorController(private val world: World) {
     }
 
     fun initLevel(level: Int) = with (world) {
-        gameLevel = level
+        this@GhostBehaviorController.level = level
+        scatterChasePhase = 0
         inky.dotCounter.limit = INKY_DOT_LIMIT.levelValue(level)
         pinky.dotCounter.limit = PINKY_DOT_LIMIT.levelValue(level)
         clyde.dotCounter.limit = CLYDE_DOT_LIMIT.levelValue(level)
 
         timeUntilNextGhostLeavesHouse = LEAVE_GHOST_HOUSE_TIMES.levelValue(level)
 
-        ghosts.forEach { it.speed = 5.0 }
+        // Ghosts get faster each level, but always stay slower than Pac-Man
+        ghosts.forEach {
+            it.speed = (GHOST_BASE_SPEED + level * GHOST_SPEED_INCREMENT).coerceAtMost(GHOST_MAX_SPEED)
+            it.smartness = GameData.smartness(level)
+        }
+
+        frightenedTimer = null
+        globalChaseScatterState = Scatter
+        ghostExitDirection = LEFT
+        timeElapsedSinceLastDotEaten = 0.0
+        scatterChaseTimer = createNewScatterChaseTimer()
+    }
+
+    /**
+     * The ghosts return to their starting positions, and the scatter / chase schedule starts over
+     */
+    fun onLifeLost() {
+        world.ghosts.forEach { it.resetState(world) }
+
+        scatterChasePhase = 0
+        frightenedTimer = null
+        globalChaseScatterState = Scatter
+        ghostExitDirection = LEFT
+        timeElapsedSinceLastDotEaten = 0.0
+        scatterChaseTimer = createNewScatterChaseTimer()
     }
 
     fun onDotEaten(isEnergizer: Boolean) {
@@ -100,12 +136,14 @@ class GhostBehaviorController(private val world: World) {
         = world.preferredOrderToLeaveHouse.firstOrNull { it.state == InGhostHouse }
 
     private fun setFrightened() {
-        val time = FRIGHTENED_TIME.levelValue(gameLevel)
+        val time = FRIGHTENED_TIME.levelValue(level) * FRIGHTENED_TIME_FACTOR
 
-        if (time == 0) return // The level may not support a frightened time at all
+        if (time == 0.0) return // The level may not support a frightened time at all
 
         scatterChaseTimer.pause()
-        frightenedTimer = Timer(time.toDouble(), onTimeout = ::onFrightenedTimerElapsed)
+        frightenedTimer = Timer(time, onTimeout = ::onFrightenedTimerElapsed)
+        frightenedFlashTime = minOf(FRIGHTENED_FLASH_TIME, time * 0.75)
+        world.ghosts.forEach { it.renderable.setFlashing(false) }
 
         switchAllGhostsToState(Frightened)
     }
@@ -118,8 +156,8 @@ class GhostBehaviorController(private val world: World) {
     }
 
     private fun createNewScatterChaseTimer(): Timer {
-        val time = SCATTER_CHASE_TIME_TABLE.levelValue(gameLevel)[gameLevel++]
-        return Timer(time, ::onScatterChaseTimerElapsed)
+        val phases = SCATTER_CHASE_TIME_TABLE.levelValue(level)
+        return Timer(phases[minOf(scatterChasePhase++, phases.size - 1)], ::onScatterChaseTimerElapsed)
     }
 
     private fun onScatterChaseTimerElapsed() {
@@ -133,7 +171,11 @@ class GhostBehaviorController(private val world: World) {
         scatterChaseTimer.update(time)
         frightenedTimer?.update(time)
 
+        val flashing = frightenedTimer?.let { it.timeLeft <= frightenedFlashTime } ?: false
+
         forEachGhost {  ghost ->
+            if (ghost.state == Frightened) ghost.renderable.setFlashing(flashing)
+
             with (ghost) {
                 if (state == LeaveGhostHouse && hasReachedTarget) {
                     state = globalChaseScatterState

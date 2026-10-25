@@ -12,7 +12,7 @@ import three.js.Object3D
 class BonusPointsRenderable : Renderable {
 
     companion object {
-        private const val SIZE = MazeConst.UNIT_SIZE * 0.8
+        private const val SIZE = MazeConst.UNIT_SIZE * 0.95
         private const val THICKNESS = 0.1
         private const val COLOR = 0x20CAC7
 
@@ -40,7 +40,7 @@ class BonusPointsRenderable : Renderable {
 
     override val sceneObject = Group().apply { visible = false }
 
-    override fun setup(world: World) = AssetLoader.onFontLoaded { font ->
+    override fun setup(world: World) = AssetLoader.onNumberFontLoaded { font ->
         val textParams = TextParameters(font, SIZE, THICKNESS)
         pointsObjects = POINT_VALUES.map { points -> points to createPointsMesh(points, textParams) }.toMap()
 

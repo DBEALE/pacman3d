@@ -32,6 +32,13 @@ abstract class MovableGameEntity<R : Renderable>(
         nextDirection = initialDirection
     }
 
+    // Bypasses the maze logic, used by cut scenes
+    fun placeAt(x: Double, y: Double, direction: Direction) {
+        position.set(x, y)
+        currentDirection = direction
+        nextDirection = direction
+    }
+
     override fun update(world: World, time: Double) {
         val preMoveMazeIndex = position.mazeIndex
 

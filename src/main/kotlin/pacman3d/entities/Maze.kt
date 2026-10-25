@@ -5,14 +5,47 @@ import pacman3d.logic.Direction
 import pacman3d.renderables.MazeRenderable
 import pacman3d.logic.Position
 import pacman3d.maze.MazeConst
+import pacman3d.maze.MazeLayout
+import pacman3d.maze.MazeLayouts
 import kotlin.experimental.and
 import kotlin.experimental.or
 
 class Maze : AbsGameEntity<MazeRenderable>() {
 
-    private val state = DEFAULT_LAYOUT.copyOf()
+    private val state = ByteArray(MazeConst.WIDTH_UNITS * MazeConst.LENGTH_UNITS)
 
-    var dotsLeft = state.count { it.isDotOrEnergizer }
+    // Takes effect on the next resetState
+    var layout: MazeLayout = MazeLayouts.CLASSIC
+
+    // The look of the maze changes as the levels progress. Takes effect on the next resetState
+    var level = 0
+
+    var totalDots = 0
+        private set
+
+    var dotsLeft = 0
+        private set
+
+    override fun resetState(world: World) {
+        state.fill(0)
+
+        layout.rows.forEachIndexed { y, row ->
+            row.forEachIndexed { x, tile -> state[MazeConst.indexOf(x, y)] = tileValue(tile) }
+        }
+
+        totalDots = state.count { it.isDotOrEnergizer }
+        dotsLeft = totalDots
+
+        renderable.setLayout(layout, level)
+    }
+
+    private fun tileValue(tile: Char): Byte = when (tile) {
+        '.' -> D
+        'o' -> R
+        ' ' -> E
+        'G' -> G
+        else -> 0
+    }
 
     operator fun get(x: Int, y: Int): Byte = state[MazeConst.indexOf(x, y)]
     operator fun get(x: Double, y: Double): Byte = state[MazeConst.indexOf(x.toInt(), y.toInt())]
@@ -50,43 +83,6 @@ class Maze : AbsGameEntity<MazeRenderable>() {
         private val R = ENERGIZER or VALID
         private val G = GHOST_HOUSE or VALID
 
-        private val DEFAULT_LAYOUT = byteArrayOf(
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, D, D, D, D, D, D, D, D, D, D, D, D, 0, 0, D, D, D, D, D, D, D, D, D, D, D, D, 0, 0,
-                0, 0, D, 0, 0, 0, 0, D, 0, 0, 0, 0, 0, D, 0, 0, D, 0, 0, 0, 0, 0, D, 0, 0, 0, 0, D, 0, 0,
-                0, 0, R, 0, 0, 0, 0, D, 0, 0, 0, 0, 0, D, 0, 0, D, 0, 0, 0, 0, 0, D, 0, 0, 0, 0, R, 0, 0,
-                0, 0, D, 0, 0, 0, 0, D, 0, 0, 0, 0, 0, D, 0, 0, D, 0, 0, 0, 0, 0, D, 0, 0, 0, 0, D, 0, 0,
-                0, 0, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, 0, 0,
-                0, 0, D, 0, 0, 0, 0, D, 0, 0, D, 0, 0, 0, 0, 0, 0, 0, 0, D, 0, 0, D, 0, 0, 0, 0, D, 0, 0,
-                0, 0, D, 0, 0, 0, 0, D, 0, 0, D, 0, 0, 0, 0, 0, 0, 0, 0, D, 0, 0, D, 0, 0, 0, 0, D, 0, 0,
-                0, 0, D, D, D, D, D, D, 0, 0, D, D, D, D, 0, 0, D, D, D, D, 0, 0, D, D, D, D, D, D, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, D, 0, 0, 0, 0, 0, E, 0, 0, E, 0, 0, 0, 0, 0, D, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, D, 0, 0, 0, 0, 0, E, 0, 0, E, 0, 0, 0, 0, 0, D, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, D, 0, 0, E, E, E, E, E, E, E, E, E, E, 0, 0, D, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, D, 0, 0, E, 0, 0, 0, G, G, 0, 0, 0, E, 0, 0, D, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, D, 0, 0, E, 0, G, G, G, G, G, G, 0, E, 0, 0, D, 0, 0, 0, 0, 0, 0, 0,
-                E, E, E, E, E, E, E, D, E, E, E, 0, G, G, G, G, G, G, 0, E, E, E, D, E, E, E, E, E, E, E,
-                0, 0, 0, 0, 0, 0, 0, D, 0, 0, E, 0, G, G, G, G, G, G, 0, E, 0, 0, D, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, D, 0, 0, E, 0, 0, 0, 0, 0, 0, 0, 0, E, 0, 0, D, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, D, 0, 0, E, E, E, E, E, E, E, E, E, E, 0, 0, D, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, D, 0, 0, E, 0, 0, 0, 0, 0, 0, 0, 0, E, 0, 0, D, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, D, 0, 0, E, 0, 0, 0, 0, 0, 0, 0, 0, E, 0, 0, D, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, D, D, D, D, D, D, D, D, D, D, D, D, 0, 0, D, D, D, D, D, D, D, D, D, D, D, D, 0, 0,
-                0, 0, D, 0, 0, 0, 0, D, 0, 0, 0, 0, 0, D, 0, 0, D, 0, 0, 0, 0, 0, D, 0, 0, 0, 0, D, 0, 0,
-                0, 0, D, 0, 0, 0, 0, D, 0, 0, 0, 0, 0, D, 0, 0, D, 0, 0, 0, 0, 0, D, 0, 0, 0, 0, D, 0, 0,
-                0, 0, R, D, D, 0, 0, D, D, D, D, D, D, D, E, E, D, D, D, D, D, D, D, 0, 0, D, D, R, 0, 0,
-                0, 0, 0, 0, D, 0, 0, D, 0, 0, D, 0, 0, 0, 0, 0, 0, 0, 0, D, 0, 0, D, 0, 0, D, 0, 0, 0, 0,
-                0, 0, 0, 0, D, 0, 0, D, 0, 0, D, 0, 0, 0, 0, 0, 0, 0, 0, D, 0, 0, D, 0, 0, D, 0, 0, 0, 0,
-                0, 0, D, D, D, D, D, D, 0, 0, D, D, D, D, 0, 0, D, D, D, D, 0, 0, D, D, D, D, D, D, 0, 0,
-                0, 0, D, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, D, 0, 0, D, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, D, 0, 0,
-                0, 0, D, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, D, 0, 0, D, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, D, 0, 0,
-                0, 0, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, D, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        )
-
         inline val Byte.isDot get() = (this and DOT) == DOT
         inline val Byte.isEnergizer get() = (this and ENERGIZER) == ENERGIZER
         inline val Byte.isDotOrEnergizer get() = isDot || isEnergizer
@@ -94,5 +90,5 @@ class Maze : AbsGameEntity<MazeRenderable>() {
         inline val Byte.isGhostHouse get() = (this and GHOST_HOUSE) == GHOST_HOUSE
     }
 
-    override fun createRenderable() = MazeRenderable()
+    override fun createRenderable() = MazeRenderable(layout)
 }
