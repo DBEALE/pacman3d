@@ -1,4 +1,4 @@
-## PacMan 3D
+## DNB PacMan 3D
 
 This is a 3D PacMan game implementation using Kotlin/JS and three.js
 
