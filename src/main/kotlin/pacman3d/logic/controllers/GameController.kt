@@ -4,6 +4,7 @@ import kotlinx.browser.document
 import kotlinx.browser.window
 import org.w3c.dom.events.KeyboardEvent
 import pacman3d.*
+import pacman3d.logic.HighScores
 import pacman3d.entities.AbsGameEntity
 import pacman3d.entities.Fruit
 import pacman3d.entities.GameStateBanner
@@ -21,6 +22,7 @@ import pacman3d.logic.controllers.GameState.*
 import pacman3d.maze.MazeLayouts
 import three.js.Camera
 import three.js.Scene
+import kotlin.random.Random
 
 /**
  * For each ghost:
@@ -77,6 +79,15 @@ class GameController {
         // The row of the tunnel, where nothing is placed
         private const val TUNNEL_ROW = 17
 
+        private const val GAME_OVER_BANNER_TIME = 2.5
+        private const val ATTRACT_GAME_OVER_TIME = 3.0
+        private const val ATTRACT_READY_TIME = 1.5
+        private const val SCORES_SCREEN_TIME = 12.0
+        private const val ATTRACT_LEVELS = 5
+        private const val STARTING_LIVES = 3
+
+        private const val KEY_ENTER = 13
+        private const val KEY_SPACE = 32
         private const val KEY_ARROW_LEFT = 37
         private const val KEY_ARROW_RIGHT = 39
         private const val KEY_ARROW_UP = 38
@@ -96,11 +107,14 @@ class GameController {
     private var level = Regex("[?&]level=(\\d+)").find(window.location.search)
         ?.groupValues?.get(1)?.toInt()?.minus(1)?.coerceAtLeast(0) ?: 0
 
+    // The level in which a new game starts
+    private val firstLevel = level
+
     private var gameState = WaitingForPlayer
 
     private var pointsForEatenGhost = 200
 
-    private var livesLeft = 3
+    private var livesLeft = STARTING_LIVES
 
     private var extraLifeAwarded = false
 
@@ -115,6 +129,17 @@ class GameController {
     private var bonusPointsTimer: Timer? = null
 
     private var cutScene: LevelCompleteCutScene? = null
+
+    // In the attract mode the game plays itself, until a key is pressed
+    private var isAttract = false
+
+    // The game is over and the high scores are shown, a key press starts a new game
+    private var awaitingRestart = false
+
+    // Drives the steps between the games: the game over banner, the high scores, the demo restarting
+    private var flowTimer: Timer? = null
+
+    private val autoPilot = AutoPilot(world)
 
     private fun initLevel() = with (world) {
         maze.layout = MazeLayouts.forLevel(level)
@@ -140,9 +165,64 @@ class GameController {
 
         world.gameStateBanner.show(GameStateBanner.READY)
         world.setPacmanAndGhostsActive(false)
+
+        // Nobody presses a key in the demo
+        if (isAttract) flowTimer = Timer(ATTRACT_READY_TIME, ::beginPlaying)
+    }
+
+    private fun beginPlaying() {
+        gameState = Playing
+        world.gameStateBanner.hide()
+        world.setPacmanAndGhostsActive(true)
+    }
+
+    /** Starts the demo, in which the game plays itself. Pressing a key ends it */
+    private fun beginAttract() {
+        isAttract = true
+        awaitingRestart = false
+        SoundPlayer.muted = true
+
+        Overlay.hideAll()
+        Overlay.setDemo(true)
+        Overlay.showBanner("PRESS AN ARROW KEY TO PLAY")
+        Overlay.showTable()
+
+        resetGame(Random.nextInt(ATTRACT_LEVELS))
+    }
+
+    private fun startNewGame() {
+        isAttract = false
+        awaitingRestart = false
+        SoundPlayer.muted = false
+
+        Overlay.hideAll()
+
+        resetGame(firstLevel)
+    }
+
+    private fun resetGame(startLevel: Int) {
+        flowTimer = null
+        visualEffectTimer = null
+        unfreezeGhosts()
+        endSpeedBoost()
+
+        world.pacman.isVisible = true
+        world.ghosts.forEach { it.isVisible = true }
+
+        world.score.reset()
+        Overlay.setHighScore(HighScores.top)
+
+        level = startLevel
+        livesLeft = STARTING_LIVES
+        extraLifeAwarded = false
+        autoPilot.reset()
+
+        initLevel()
     }
 
     fun update(time: Double) {
+
+        flowTimer?.update(time)
 
         cutScene?.let { scene ->
             scene.update(time)
@@ -164,6 +244,8 @@ class GameController {
         }
 
         updateTimers(time)
+
+        if (isAttract && gameState == Playing) autoPilot.update()
 
         updateGameLogic(time)
 
@@ -239,6 +321,13 @@ class GameController {
         world.freezePowerUp.hide()
         world.speedPowerUp.hide()
 
+        // The demo has no time for the cut scenes
+        if (isAttract) {
+            level++
+            initLevel()
+            return
+        }
+
         cutScene = LevelCompleteCutScene.forLevel(level, world) {
             cutScene = null
             level++
@@ -250,6 +339,29 @@ class GameController {
         gameState = GameOver
         world.setPacmanAndGhostsActive(false)
         world.gameStateBanner.show(GAME_OVER)
+
+        flowTimer = if (isAttract) Timer(ATTRACT_GAME_OVER_TIME, ::beginAttract) else Timer(GAME_OVER_BANNER_TIME, ::showHighScores)
+    }
+
+    private fun showHighScores() {
+        world.gameStateBanner.hide()
+        val score = world.score.points
+
+        if (HighScores.qualifies(score)) {
+            Overlay.promptForName(score) { name ->
+                val position = HighScores.add(name, score)
+                Overlay.setHighScore(HighScores.top)
+                waitForNewGame(position)
+            }
+        } else waitForNewGame()
+    }
+
+    private fun waitForNewGame(highlight: Int = -1) {
+        awaitingRestart = true
+        Overlay.showTable(highlight)
+        Overlay.showBanner("PRESS AN ARROW KEY TO PLAY")
+
+        flowTimer = Timer(SCORES_SCREEN_TIME, ::beginAttract)
     }
 
     private fun handleDotEaten() {
@@ -304,6 +416,7 @@ class GameController {
 
     private fun addScore(points: Int) {
         world.score += points
+        Overlay.setHighScore(maxOf(HighScores.top, world.score.points))
 
         if (!extraLifeAwarded && world.score.points >= EXTRA_LIFE_SCORE) {
             extraLifeAwarded = true
@@ -376,15 +489,15 @@ class GameController {
 
     fun start() {
 
-        // TODO: Until I properly handle levels
-        initLevel()
+        Overlay.setHighScore(HighScores.top)
+        beginAttract()
 
         document.onkeydown = ::handleKeyboardEvent
     }
 
     /** Cheat: double clicking a fruit at the bottom of the screen skips to the next maze */
     fun onDoubleClick(clientX: Int, clientY: Int, camera: Camera) {
-        if (cutScene != null || visualEffectTimer != null || gameState == GameOver || gameState == LevelComplete) return
+        if (isAttract || awaitingRestart || cutScene != null || visualEffectTimer != null || gameState == GameOver || gameState == LevelComplete) return
         if (!world.fruit.renderable.isIndicatorAt(clientX, clientY, camera)) return
 
         unfreezeGhosts()
@@ -400,14 +513,19 @@ class GameController {
 
     private fun handleKeyboardEvent(event: KeyboardEvent) {
 
+        val isStartKey = event.keyCode == KEY_ENTER || event.keyCode == KEY_SPACE
+
+        if (!ALLOWED_KEYS.contains(event.keyCode) && !isStartKey) return
+
+        if (isAttract || awaitingRestart) {
+            startNewGame()
+            return
+        }
+
         if (!ALLOWED_KEYS.contains(event.keyCode)) return
 
         when (gameState) {
-            WaitingForPlayer -> {
-                gameState = Playing
-                world.gameStateBanner.hide()
-                world.setPacmanAndGhostsActive(true)
-            }
+            WaitingForPlayer -> beginPlaying()
 
             GameOver, LevelComplete -> return
         }

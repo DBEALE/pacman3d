@@ -9,6 +9,8 @@ class Score : AbsGameEntity<ScoreRenderable>() {
 
     override fun createRenderable() = ScoreRenderable(this)
 
+    fun reset() { points = 0 }
+
     operator fun plusAssign(value: Int) {
         points += value
     }

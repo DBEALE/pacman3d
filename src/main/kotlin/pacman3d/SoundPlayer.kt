@@ -19,6 +19,9 @@ object SoundPlayer {
 
     val audioListener = AudioListener()
 
+    // The attract mode is silent
+    var muted = false
+
     private val audioLoader = AudioLoader()
 
     private val sounds = arrayOf(
@@ -39,9 +42,13 @@ object SoundPlayer {
         audioLoader.load(sound.filename, onLoad = { buffer -> setBuffer(buffer) })
     }
 
-    fun play(sound: Sound): Unit = sounds[sound.ordinal].run {
-        buffer?.also {
-            if (!isPlaying) play()
+    fun play(sound: Sound) {
+        if (muted) return
+
+        sounds[sound.ordinal].run {
+            buffer?.also {
+                if (!isPlaying) play()
+            }
         }
     }
 }
